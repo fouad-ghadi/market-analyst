@@ -1,0 +1,248 @@
+# =============================================================================
+# Market Analyst: configuration
+# Every tunable number used by the tool lives in this file, and only here.
+# Each value comes from the rulebook (CLAUDE.md section 2) or the precise
+# definitions (CLAUDE.md section 6). Values marked "(default, tune later)" are
+# starting guesses that the rulebook does not specify. The backtest will tell us
+# whether to change them.
+# The [Mx] tag says which milestone first uses the setting.
+# =============================================================================
+
+# --- MT5 connection (read-only) ------------------------------------- [M1] ---
+mt5:
+  terminal_path: null       # null = attach to the MT5 terminal that is already running and logged in
+  timeout_ms: 60000         # how long to wait for the terminal to answer
+  expected_server: "XMGlobal-MT5 10"   # print a warning if the terminal is logged in somewhere else
+  warn_if_not_demo: true    # print a big warning if the account is not a demo account
+
+# --- Time handling ---------------------------------------------------- [M1] ---
+time:
+  # MT5 bar timestamps are in BROKER SERVER time, not UTC.
+  # "new_york_close": server time = New York time + 7 h, so the daily candle
+  #   closes at 17:00 New York. That works out to UTC+2 in winter and UTC+3 in
+  #   summer, and it follows daylight saving automatically. Most forex brokers,
+  #   XM included, use this convention. `market-analyst check-time` checks it
+  #   against a live tick while the market is open.
+  # "fixed": always use server_utc_offset_hours (does not follow daylight saving).
+  server_time_mode: new_york_close
+  server_utc_offset_hours: 3          # used only if server_time_mode = fixed
+  best_session_utc:                   # London-New York overlap
+    start: "13:00"
+    end: "17:00"
+
+# --- Symbols ----------------------------------------------------------- [M1] ---
+symbols:
+  EURUSD:
+    pip_size: 0.0001        # 1 pip = 0.0001 (10 points on a 5-digit quote)
+    price_decimals: 5       # how many decimals to print
+    typical_spread: 0.00019 # 1.9 pips (XM demo, measured 2026-11-20): used when no live spread is known
+    contract_size: 100000   # units in 1 lot (to show the risk in dollars; USD account)
+    news_currencies: [EUR, USD]   # economic news that moves this symbol
+  GOLD:                     # XM's name for XAUUSD
+    pip_size: 0.1           # convention: 1 pip = $0.10 on gold (display only; sizing uses tick values)
+    price_decimals: 2
+    typical_spread: 0.55    # $0.55 = 55 points (XM demo, measured 2026-11-20)
+    contract_size: 100      # ounces in 1 lot
+    news_currencies: [USD]
+
+  # Extra markets used ONLY to test the strategies on more history
+  # (`research`, `backtest GBPUSD ...`). `trade: false` keeps them out of
+  # analyze / deals. More markets = more trades = easier to tell skill from luck.
+  GBPUSD:
+    trade: false
+    pip_size: 0.0001
+    price_decimals: 5
+    typical_spread: 0.00020
+    contract_size: 100000
+    news_currencies: [GBP, USD]
+  AUDUSD:
+    trade: false
+    pip_size: 0.0001
+    price_decimals: 5
+    typical_spread: 0.00018
+    contract_size: 100000
+    news_currencies: [AUD, USD]
+  USDJPY:
+    trade: false
+    pip_size: 0.01
+    price_decimals: 3
+    typical_spread: 0.018
+    contract_size: 100000
+    news_currencies: [USD, JPY]
+
+# --- Timeframe roles (multi-timeframe rule) ------------------------- [M1] ---
+timeframes:
+  direction: [D1, H4]       # direction and main levels
+  confirmation: [H1]        # confirmation
+  entry: [M15, M5]          # entry timing only (M1 = noise, never used)
+
+# --- Data download and cache --------------------------------------- [M1] ---
+data:
+  # Where candles come from:
+  #   auto  = MT5 if the MetaTrader5 package is installed (your Windows PC), else yahoo
+  #   mt5   = your XM terminal (exact broker prices, the reference)
+  #   yahoo = free public data, for working in the cloud where MT5 cannot run.
+  #           GOLD then uses COMEX gold FUTURES (GC=F), which trade a few dollars away
+  #           from XM's spot price: good for learning structure, not for exact levels.
+  source: auto
+  yahoo:
+    symbols:
+      EURUSD: "EURUSD=X"
+      GOLD: "GC=F"
+      GBPUSD: "GBPUSD=X"
+      AUDUSD: "AUDUSD=X"
+      USDJPY: "USDJPY=X"
+    hourly_range: 730d      # Yahoo's maximum for hourly candles; H4 and D1 are built from H1
+  cache_dir: data           # relative to the project folder
+  bars:                     # how many CLOSED bars to download per timeframe
+    D1: 1500                # about 6 years
+    H4: 6000                # about 4 years
+    H1: 20000               # about 3 years (MT5 may return fewer)
+  include_forming_bar: false   # false = drop the candle that is still open (avoids look-ahead)
+
+# --- Indicators -------------------------------------------------------- [M2] ---
+atr:
+  period: 14
+
+# --- Swing points ------------------------------------------------------ [M2] ---
+swings:
+  fractal_n: 3              # a swing high needs N lower highs on each side
+                            # it is only CONFIRMED N bars after the swing bar closes
+
+# --- Support / Resistance zones --------------------------------------- [M2] ---
+levels:
+  source: wicks             # levels are built from wick tips, never candle bodies
+  tolerance_atr_mult: 0.25  # wick extremes within 0.25 x ATR(14) are grouped into one zone
+  min_touches_validated: 2  # >= 2 touches with a reaction = "validated"
+  # What counts as a touch "with a clear reaction": after the swing, price must move
+  # away from it by at least 3 x ATR within the next 10 candles. Without this, every
+  # tiny turn counted as a touch and zones covered up to 45% of the chart.
+  min_reaction_atr_mult: 3.0    # (default, tune later) 0 = every swing counts
+  reaction_bars: 10             # (default, tune later)
+  min_touches_watch: 1      # 1 touch = "level to watch"
+  timeframe_weight:         # higher timeframe = stronger level
+    D1: 3.0
+    H4: 2.0
+    H1: 1.0
+  recency_half_life_bars: 100   # (default, tune later) a touch's weight halves every 100 bars
+  lookback_bars: 500            # (default, tune later) only swings from the last 500 bars build zones
+  role_reversal_on_close: true  # a zone flips only when a candle CLOSES through it (a wick is not enough)
+
+# --- Market structure ------------------------------------------------- [M3] ---
+structure:
+  swings_compared: 2        # compare the last 2 confirmed swing highs and lows
+                            # HH+HL = uptrend, LH+LL = downtrend, anything else = range
+
+# --- Candlestick patterns (only meaningful AT a level) ----------------- [M3] ---
+patterns:
+  near_level_atr_mult: 0.5          # (default, tune later) candle must be within 0.5 x ATR of a zone
+  lookback_bars: 3                  # (default, tune later) how many recent closed candles to scan
+  doji_max_body_ratio: 0.10         # (default, tune later) body <= 10% of the candle range
+  hammer_min_wick_body_ratio: 2.0   # (default, tune later) long wick >= 2 x body
+  hammer_max_opposite_wick_ratio: 0.25  # (default, tune later) other wick <= 25% of the range
+  engulfing_body_must_engulf: true  # the 2nd body fully covers the 1st body
+
+# --- Strategy: S/R + candlestick confirmation ------------------------- [M4] ---
+strategy:
+  level_timeframes: [D1, H4]        # step 1: mark validated levels on H4 (and D1)
+  confirmation_timeframe: H1        # step 3: reversal candle at the level
+  middle_of_range_pct: 40           # price in the middle 40% between S and R = NO TRADE
+  require_validated_level: true     # entry only at a level with >= 2 touches
+  prefer_with_trend: true           # trade with the H4 trend
+  allow_counter_trend: true         # allowed, but labelled "lower conviction"
+  entry_modes: [confirmation_close, retest]
+
+# --- Stop loss / take profit ------------------------------------------ [M4] ---
+stops:
+  sl_buffer_spread_mult: 2.0        # SL buffer = max(2 x spread, 0.1 x ATR) beyond the zone edge
+  sl_buffer_atr_mult: 0.1
+  tp_uses_same_buffer: true         # TP = just before the next opposite zone (minus the same buffer)
+  min_risk_reward: 2.0              # below 1:2 = skip the trade
+  # The three settings below are NOT rulebook values. They come from
+  # `market-analyst research` (see RESEARCH.md): on unseen history they took the
+  # baseline strategy from clearly losing to about break-even. Not to a profit.
+  # Rulebook behaviour = min_risk_atr_mult: 0.0 and tp_mode: next_level.
+  min_risk_atr_mult: 1.0            # stop at least 1 x ATR(H1) from entry (0 = off, rulebook)
+  tp_mode: fixed_rr                 # fixed_rr, or next_level (rulebook: TP before the next level)
+  fixed_rr: 3.0                     # target = 3 x the risk (used only when tp_mode = fixed_rr)
+  allow_move_sl_to_breakeven: true
+  # Trade management (tested by `research`). When a trade reaches +manage_at_r:
+  # close partial_fraction of it there, and move the stop of the rest to the entry.
+  manage_at_r: 0.0                  # 0 = off (hold everything to SL or TP)
+  partial_fraction: 0.0             # e.g. 0.5 = close half
+  breakeven_after_manage: true
+  allow_widen_sl: false             # never move the SL further away
+
+# --- Risk management -------------------------------------------------- [M4] ---
+risk:
+  risk_pct_per_trade: 1.0           # maximum 1% of balance per trade
+  learning_phase: true              # true = use fixed_lot instead of %-based sizing
+  fixed_lot: 0.01
+  round_lots_down: true             # always round the lot size DOWN to the volume step
+  max_open_trades: 1
+  max_losses_per_day: 2             # stop for the day after 2 losses...
+  max_daily_loss_pct: 3.0           # ...or after -3% on the day
+  allow_size_increase_after_loss: false   # no revenge trading
+
+# --- Pending orders (advice only, the tool never sends orders) --------- [M4] ---
+orders:
+  pending_expiration: today
+
+# --- Report and chart --------------------------------------------- [M2] ---
+report:
+  levels_each_side: 4       # show the 4 nearest zones above and below price
+  chart_bars: 180           # candles drawn on the chart image
+  output_dir: reports       # where chart images are saved
+
+# --- Economic news calendar (information only, not a rulebook rule yet) - [M3] ---
+news:
+  enabled: true
+  impact: [High]            # which impact levels to show (High = "red folder" news)
+  warn_hours_ahead: 24      # list events in the next 24 h in the analysis
+  cache_minutes: 60         # re-download the weekly calendar at most once per hour
+
+# --- Extra strategies compared by the backtest ------------------------ [M7] ---
+strategies:
+  # "Retest" second entry (your rulebook): after a confirmation candle at a level,
+  # do not enter at once. Wait for price to leave the level, then buy/sell the
+  # return to it with a limit order.
+  retest:
+    min_departure_atr: 1.0    # (default, tune later) price must first move away by 1 x ATR(H1)
+    expiry_bars: 24           # (default, tune later) the limit order lives 24 H1 candles ("Today")
+  # Al Brooks-style second entry (High 2 / Low 2): in a trend, the SECOND
+  # attempt of a pullback to resume the trend.
+  h2l2:
+    trend_timeframe: H4       # the trend must be up (for buys) or down (for sells) here
+    ema_period: 20            # pullbacks are measured around the 20-candle EMA on H1
+    min_pullback_atr: 1.0     # (default, tune later) the pullback must be at least 1 x ATR deep
+    max_pullback_bars: 20     # (default, tune later) longer than this is no longer a pullback
+    target_rr: 2.0            # take profit at 2 x the risk
+
+# --- Backtest ----------------------------------------------------------- [M7] ---
+backtest:
+  entry_timeframe: H1         # decisions are taken at the close of each H1 candle
+  max_hold_bars: 120          # close a trade that is still open after 120 H1 candles (5 days)
+  gap_after_hours: 4          # a candle more than 4 h after the previous one = market was closed
+  min_history_bars:           # do not trade before this much history exists
+    H4: 150
+    D1: 40
+  out_of_sample_fraction: 0.35   # newest 35% of history is kept aside to judge tuned settings
+
+# --- Extra entry conditions per strategy ------------------------------- [M7] ---
+# Empty = no extra condition. `market-analyst research` proposes conditions; they
+# only belong here if they also held up on the out-of-sample part of history.
+# Format:  key: [allowed values]   |   min_key: number   |   max_key: number   |   key: true/false
+filters:
+  # Baseline strategy: only take setups with the D1 trend and with the 50 EMA
+  # (H1) sloping the same way. From `research`; break-even on unseen history.
+  # Rulebook behaviour = level: {}
+  level:
+    trend_D1: [with trend]
+    ema50_slope: true
+  retest: {}      # no tested condition held up on unseen history
+  h2l2: {}        # no tested condition held up on unseen history
+
+# --- Deals ---------------------------------------------------------------------
+deals:
+  warmup_bars: 400          # candles replayed so each strategy knows its current setup
+  log_file: deals_log.csv   # every deal shown is appended here (in reports/), to review later

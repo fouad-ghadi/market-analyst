@@ -1,0 +1,26 @@
+# Secrets: never commit
+.env
+
+# Cached market data and journal database (re-downloadable / personal)
+data/*
+!data/.gitkeep
+
+# Generated chart images
+reports/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Project zips sent in chat
+*.zip
