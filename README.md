@@ -31,7 +31,7 @@ pip install -e .
 pytest
 ```
 
-`pytest` should print `149 passed`. The tests use fake data, so they need neither MT5 nor internet.
+`pytest` should print `168 passed`. The tests use fake data, so they need neither MT5 nor internet.
 
 ## Use
 
@@ -40,7 +40,7 @@ market-analyst fetch              # download candles into data\
 market-analyst analyze            # structure, levels, location, candles, news -> verdict
 market-analyst analyze GOLD --no-news
 market-analyst levels GOLD -t H4  # list zones with touch counts (--all for every zone)
-market-analyst chart GOLD -t H4 D1   # save reports\GOLD_H4_levels.png
+market-analyst chart GOLD -t H4 D1   # save reports\GOLD_H4_levels.png (same D1+H4 zones as `analyze`)
 market-analyst news               # high-impact events this week
 market-analyst dashboard --fetch  # EVERYTHING on one web page, opened in your browser
 market-analyst deals              # orders the strategies want now: entry / SL / TP + past record

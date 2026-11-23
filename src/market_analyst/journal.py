@@ -72,8 +72,25 @@ def resolve_deal(row: dict, h1: pd.DataFrame, spread: float, max_hold: int) -> d
     fill = try_fill(order, first["open"], first["high"], first["low"], spread)
     if fill is None:
         return {"status": "not filled", "r": None}
-    risk = abs(fill - sl)
     buy = order.direction == "buy"
+    planned_risk = abs(entry - sl)             # 1R as planned in the deal
+    if planned_risk <= 0:
+        return {"status": "invalid", "r": None}
+    # Gap through the stop: the market OPENED beyond the stop (e.g. Monday
+    # after a weekend), so the order filled on the wrong side of it. MT5 then
+    # closes the trade at once, at the market price of that open, so the
+    # result is the loss from the actual fill to that price (measured in
+    # planned R). Before this check, the exit was booked AT the stop price,
+    # which is better than the fill: a stopped-out trade showed up as a win.
+    # (A stop order is different: it fills later in the candle, on the way
+    # back up or down, so an open beyond the stop says nothing about it.)
+    o = first["open"]
+    opened_beyond_stop = order.kind != "stop" and (o <= sl if buy else o + spread >= sl)
+    if opened_beyond_stop:
+        exit_price = o if buy else o + spread
+        gain = exit_price - fill if buy else fill - exit_price
+        return {"status": "gap", "r": gain / planned_risk}
+    risk = abs(fill - sl)
     for k, (_, c) in enumerate(after.iterrows()):
         result = check_exit(order.direction, sl, tp, c["open"], c["high"], c["low"], spread,
                             k == 0, order.kind == "market")

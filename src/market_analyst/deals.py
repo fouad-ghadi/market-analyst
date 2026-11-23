@@ -59,7 +59,7 @@ class Deal:
     entry: float
     sl: float
     tp: float
-    risk_dollars: float
+    risk_dollars: float | None   # None = cannot convert to the account currency
     pattern: str
     record: Record
     candle_close: pd.Timestamp
@@ -70,8 +70,35 @@ class Deal:
         return abs(self.tp - self.entry) / risk if risk else 0.0
 
     @property
+    def risk_text(self) -> str:
+        return "unknown" if self.risk_dollars is None else f"${self.risk_dollars:.2f}"
+
+    @property
     def order_text(self) -> str:
         return ORDER_TEXT[(self.kind, self.direction)]
+
+
+def risk_in_account_currency(cfg: dict, symbol: str, distance: float, lots: float,
+                             price: float) -> float | None:
+    """Money lost if price moves `distance` against `lots` lots, in the account
+    currency (risk.account_currency, USD for you).
+
+    A price move is counted in the QUOTE currency (the second one of the pair):
+      EURUSD 1.1500 -> 1.1490 on 1 lot = 0.0010 x 100,000 = 100 USD
+      USDJPY 155.00 -> 154.00 on 1 lot = 1.00 x 100,000 = 100,000 JPY (not USD!)
+    So we convert:
+      quote currency = account currency (EURUSD, GOLD) -> nothing to do
+      base currency  = account currency (USDJPY)       -> divide by the price
+      neither (e.g. EURGBP)                            -> unknown: returns None
+    """
+    spec = cfg["symbols"][symbol]
+    account = cfg["risk"].get("account_currency", "USD")
+    in_quote = distance * spec.get("contract_size", 0) * lots
+    if spec.get("quote_currency", account) == account:
+        return in_quote
+    if spec.get("base_currency") == account and price > 0:
+        return in_quote / price
+    return None
 
 
 def record_of(h: History, name: str, cfg: dict) -> Record:
@@ -103,7 +130,7 @@ def find_deals(h: History, cfg: dict) -> dict[str, Deal | None]:
         out[name] = Deal(
             symbol=h.symbol, strategy=name, kind=order.kind, direction=order.direction,
             entry=entry, sl=order.sl, tp=order.tp,
-            risk_dollars=risk * cfg["symbols"][h.symbol].get("contract_size", 0) * lot,
+            risk_dollars=risk_in_account_currency(cfg, h.symbol, risk, lot, entry),
             pattern=order.info.get("pattern", ""), record=record_of(h, name, cfg),
             candle_close=candle_close(h))
     return out

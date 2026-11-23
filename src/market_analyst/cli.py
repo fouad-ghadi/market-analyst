@@ -33,7 +33,7 @@ import pandas as pd
 
 from . import __version__, backtest, journal, news, report, research
 from . import deals as deals_mod
-from .analysis import analyze
+from .analysis import analysis_zones, analyze
 from .config import ConfigError, load_config, output_dir
 from .data import (
     MT5Connection,
@@ -223,11 +223,16 @@ def cmd_levels(args, cfg, mt5_module=None) -> int:
 
 
 def cmd_chart(args, cfg, mt5_module=None) -> int:
+    # The zones drawn are exactly the ones `analyze` uses for its verdict
+    # (D1 + H4 merged, roles from the last H1 close), whatever timeframe the
+    # candles are drawn on.
+    needed = list(dict.fromkeys(
+        cfg["strategy"]["level_timeframes"] + [cfg["strategy"]["confirmation_timeframe"]]))
     for sym in _symbols(cfg, args.symbols):
+        zones = analysis_zones(cfg, {tf: _load(cfg, sym, tf) for tf in needed})
         for tf in args.timeframes or ["H4"]:
             df = _load(cfg, sym, tf)
             swings = find_swings(df, cfg["swings"]["fractal_n"])
-            zones = build_zones(df, cfg, tf, swings)
             trend = classify(df, cfg, tf, swings).summary
             path = output_dir(cfg) / f"{sym}_{tf}_levels.png"
             touches = clear_reactions(df, swings, cfg)
@@ -361,7 +366,7 @@ def cmd_deals(args, cfg, mt5_module=None) -> int:
             print(f"  {name:7s} {d.order_text}"
                   + (f" at {f(d.entry)}" if d.kind != "market" else f" about {f(d.entry)}"))
             print(f"          SL {f(d.sl)}   TP {f(d.tp)}   R:R 1:{d.rr:.1f}"
-                  f"   risk at {lot} lot about ${d.risk_dollars:.2f}")
+                  f"   risk at {lot} lot about {d.risk_text}")
             print(f"          why: {deals_mod.STRATEGY_TEXT[name]}"
                   + (f" [{d.pattern}]" if d.pattern else ""))
             print(f"          record on {sym}: {d.record.text}"
@@ -375,6 +380,8 @@ def cmd_deals(args, cfg, mt5_module=None) -> int:
         deals_mod.log_deals(shown, path, lambda v, s: report.fmt_price(v, cfg, s), utc_now())
         print(f"\n{len(shown)} deal(s). Logged to {path} "
               "(fill in 'taken' and 'result' yourself).")
+        print("Your rules the tool cannot see (it does not read your account):")
+        print("\n".join(f"  - {line}" for line in report.rule_reminders(cfg)))
     else:
         print("\nNo deal right now. Most hours have none: re-run after the next H1 close.")
     print("These are the strategies' mechanical signals, not predictions. The backtest found "
