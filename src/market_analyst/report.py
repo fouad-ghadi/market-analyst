@@ -78,6 +78,22 @@ def format_levels(zones: list[Zone], price: float, cfg: dict, symbol: str) -> st
     return "\n".join(lines) if lines else "  (no zones found)"
 
 
+def rule_reminders(cfg: dict) -> list[str]:
+    """Rulebook limits that depend on YOUR account and your day (open trades,
+    losses today). The tool is read-only and does not look at your trades yet,
+    so it cannot check them: it prints them next to every plan instead. The
+    trade journal milestone will check them against your MT5 history."""
+    r, t = cfg["risk"], cfg["time"]["best_session_utc"]
+    expiry = cfg["orders"]["pending_expiration"]
+    return [
+        f"At most {r['max_open_trades']} open trade(s) at a time.",
+        (f"Stop for the day after {r['max_losses_per_day']} losses or "
+         f"-{r['max_daily_loss_pct']:g}% on the day."),
+        f"Pending orders: set the expiration to \"{expiry}\" in MT5.",
+        f"Best session: {t['start']} to {t['end']} UTC (London-New York overlap).",
+    ]
+
+
 def format_analysis(a: Analysis, cfg: dict, source: str, news_lines: list[str] | None = None
                     ) -> str:
     f = lambda v: fmt_price(v, cfg, a.symbol)  # noqa: E731
@@ -136,6 +152,8 @@ def format_analysis(a: Analysis, cfg: dict, source: str, news_lines: list[str] |
                 "  This is a plan to check, not a prediction. `market-analyst backtest` shows "
                 "how such setups did in the past. Finish your pre-trade checklist "
                 "(own analysis? calm? one trade at a time?) before doing anything."]
+        out += ["", "YOUR RULES THE TOOL CANNOT SEE (it does not read your account)"]
+        out += [f"  - {line}" for line in rule_reminders(cfg)]
     return "\n".join(out)
 
 

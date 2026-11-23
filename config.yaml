@@ -6,6 +6,9 @@
 # starting guesses that the rulebook does not specify. The backtest will tell us
 # whether to change them.
 # The [Mx] tag says which milestone first uses the setting.
+# A few rulebook values are "fixed": the code implements them in one way only
+# (listed in config.py FIXED_RULES). Changing them stops the program with a
+# clear message instead of silently doing nothing.
 # =============================================================================
 
 # --- MT5 connection (read-only) ------------------------------------- [M1] ---
@@ -26,7 +29,7 @@ time:
   # "fixed": always use server_utc_offset_hours (does not follow daylight saving).
   server_time_mode: new_york_close
   server_utc_offset_hours: 3          # used only if server_time_mode = fixed
-  best_session_utc:                   # London-New York overlap
+  best_session_utc:                   # London-New York overlap (reminder only, not a filter)
     start: "13:00"
     end: "17:00"
 
@@ -37,12 +40,16 @@ symbols:
     price_decimals: 5       # how many decimals to print
     typical_spread: 0.00019 # 1.9 pips (XM demo, measured 2026-11-20): used when no live spread is known
     contract_size: 100000   # units in 1 lot (to show the risk in dollars; USD account)
+    base_currency: EUR
+    quote_currency: USD       # prices are counted in this currency
     news_currencies: [EUR, USD]   # economic news that moves this symbol
   GOLD:                     # XM's name for XAUUSD
     pip_size: 0.1           # convention: 1 pip = $0.10 on gold (display only; sizing uses tick values)
     price_decimals: 2
     typical_spread: 0.55    # $0.55 = 55 points (XM demo, measured 2026-11-20)
     contract_size: 100      # ounces in 1 lot
+    base_currency: XAU
+    quote_currency: USD       # prices are counted in this currency
     news_currencies: [USD]
 
   # Extra markets used ONLY to test the strategies on more history
@@ -54,6 +61,8 @@ symbols:
     price_decimals: 5
     typical_spread: 0.00020
     contract_size: 100000
+    base_currency: GBP
+    quote_currency: USD       # prices are counted in this currency
     news_currencies: [GBP, USD]
   AUDUSD:
     trade: false
@@ -61,6 +70,8 @@ symbols:
     price_decimals: 5
     typical_spread: 0.00018
     contract_size: 100000
+    base_currency: AUD
+    quote_currency: USD       # prices are counted in this currency
     news_currencies: [AUD, USD]
   USDJPY:
     trade: false
@@ -68,6 +79,8 @@ symbols:
     price_decimals: 3
     typical_spread: 0.018
     contract_size: 100000
+    base_currency: USD
+    quote_currency: JPY       # prices are counted in this currency
     news_currencies: [USD, JPY]
 
 # --- Timeframe roles (multi-timeframe rule) ------------------------- [M1] ---
@@ -149,7 +162,7 @@ strategy:
   middle_of_range_pct: 40           # price in the middle 40% between S and R = NO TRADE
   require_validated_level: true     # entry only at a level with >= 2 touches
   prefer_with_trend: true           # trade with the H4 trend
-  allow_counter_trend: true         # allowed, but labelled "lower conviction"
+  allow_counter_trend: true         # true = allowed, labelled "lower conviction"; false = NO TRADE
   entry_modes: [confirmation_close, retest]
 
 # --- Stop loss / take profit ------------------------------------------ [M4] ---
@@ -176,9 +189,13 @@ stops:
 # --- Risk management -------------------------------------------------- [M4] ---
 risk:
   risk_pct_per_trade: 1.0           # maximum 1% of balance per trade
+  account_currency: USD             # risk in money is shown in this currency
   learning_phase: true              # true = use fixed_lot instead of %-based sizing
   fixed_lot: 0.01
   round_lots_down: true             # always round the lot size DOWN to the volume step
+  # The 3 limits below need your account and today's trades, which the tool does not
+  # read. They are printed next to every plan/deal as reminders; the trade journal
+  # (next milestone) will check them against your MT5 history.
   max_open_trades: 1
   max_losses_per_day: 2             # stop for the day after 2 losses...
   max_daily_loss_pct: 3.0           # ...or after -3% on the day
@@ -186,7 +203,7 @@ risk:
 
 # --- Pending orders (advice only, the tool never sends orders) --------- [M4] ---
 orders:
-  pending_expiration: today
+  pending_expiration: today         # reminder printed next to plans (the tool cannot set it)
 
 # --- Report and chart --------------------------------------------- [M2] ---
 report:

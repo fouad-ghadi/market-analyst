@@ -144,6 +144,27 @@ class Analysis:
     swings: dict[str, pd.DataFrame] = field(default_factory=dict)
 
 
+def analysis_zones(cfg: dict, frames: dict[str, pd.DataFrame],
+                   swings: dict[str, pd.DataFrame] | None = None) -> list[Zone]:
+    """THE zones the verdict uses: built on each level timeframe (D1, H4),
+    merged into one list, and labelled support/resistance from the last close
+    of the confirmation timeframe (H1). The `chart` command, the dashboard and
+    `analyze` all call this, so the picture and the verdict always show the
+    same levels."""
+    scfg = cfg["strategy"]
+    level_tfs = [tf for tf in scfg["level_timeframes"] if tf in frames]
+    n = cfg["swings"]["fractal_n"]
+    swings = swings or {}
+    zones = combine_timeframes(
+        {tf: build_zones(frames[tf], cfg, tf,
+                         swings[tf] if tf in swings else find_swings(frames[tf], n))
+         for tf in level_tfs}, cfg)
+    price = float(frames[scfg["confirmation_timeframe"]]["close"].iloc[-1])
+    for z in zones:   # role reversal: role depends on which side price last closed
+        z.role = role_for(z.low, z.high, price)
+    return zones
+
+
 def analyze(symbol: str, cfg: dict, frames: dict[str, pd.DataFrame],
             spread: float | None = None) -> Analysis:
     scfg = cfg["strategy"]
@@ -157,15 +178,10 @@ def analyze(symbol: str, cfg: dict, frames: dict[str, pd.DataFrame],
     swings = {tf: find_swings(df, n) for tf, df in frames.items()}
     structures = {tf: classify(frames[tf], cfg, tf, swings[tf]) for tf in frames}
 
-    # --- zones from the level timeframes ---
-    zones = combine_timeframes(
-        {tf: build_zones(frames[tf], cfg, tf, swings[tf]) for tf in level_tfs}, cfg)
-
+    zones = analysis_zones(cfg, frames, swings)
     conf = frames[conf_tf]
     last = conf.iloc[-1]
     price = float(last["close"])
-    for z in zones:   # role reversal: role depends on which side price last closed
-        z.role = role_for(z.low, z.high, price)
 
     conf_atr = last_atr(conf, cfg["atr"]["period"])
     margin = cfg["patterns"]["near_level_atr_mult"] * conf_atr
@@ -271,6 +287,12 @@ def _decide(a: Analysis, loc: Location, cfg: dict, conf_tf: str, level_tfs: list
     trend_tf = "H4" if "H4" in a.structures else level_tfs[-1]
     trend = a.structures[trend_tf].trend
     a.trend_alignment = trend_alignment(trend, a.direction)
+    if a.trend_alignment == "counter-trend" and not scfg["allow_counter_trend"]:
+        a.plan = None
+        a.verdict = "NO TRADE"
+        a.reasons.append(f"The {a.direction} is AGAINST the {trend_tf} trend, and "
+                         "strategy.allow_counter_trend is false.")
+        return
     a.verdict = "SETUP CANDIDATE"
     a.reasons.append(f"Planned risk:reward is 1:{plan.rr:.1f} (minimum "
                      f"1:{cfg['stops']['min_risk_reward']:g}).")

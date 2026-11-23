@@ -192,7 +192,7 @@ def deals_card(deals: dict[str, Deal | None], cfg: dict, f) -> str:
                  f'<div><span class="label">Stop loss</span>{f(d.sl)}</div>'
                  f'<div><span class="label">Take profit</span>{f(d.tp)}</div>'
                  f'<div><span class="label">R:R</span>1:{d.rr:.1f}</div>'
-                 f'<div><span class="label">Risk at {lot} lot</span>${d.risk_dollars:.2f}</div>'
+                 f'<div><span class="label">Risk at {lot} lot</span>{d.risk_text}</div>'
                  f'</div><div class="small">{esc(STRATEGY_TEXT[name])}'
                  f'{" [" + esc(d.pattern) + "]" if d.pattern else ""}</div>'
                  f'<div class="small" style="margin-top:4px">{tag} '

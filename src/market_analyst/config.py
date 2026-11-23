@@ -24,6 +24,19 @@ DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 VALID_TIMEFRAMES = {"M5", "M15", "M30", "H1", "H4", "D1", "W1"}
 
 
+# Rulebook settings that the code applies in exactly one way (see validate_config).
+FIXED_RULES = {
+    "levels.source": "wicks",                         # levels.py uses wick tips
+    "levels.min_touches_watch": 1,                    # any zone below "validated" is "watch"
+    "levels.role_reversal_on_close": True,            # levels.role_for uses the last CLOSE
+    "structure.swings_compared": 2,                   # structure.py compares the last 2 swings
+    "patterns.engulfing_body_must_engulf": True,      # patterns.py requires a full engulf
+    "stops.tp_uses_same_buffer": True,                # planner.py uses one buffer for SL and TP
+    "strategy.prefer_with_trend": True,               # counter-trend = "lower conviction" label
+    "risk.round_lots_down": True,                     # no %-based lot sizing yet (fixed lot)
+}
+
+
 class ConfigError(ValueError):
     """Raised when config.yaml is missing a value or contains an impossible one."""
 
@@ -102,6 +115,21 @@ def validate_config(cfg: dict) -> None:
     pct = _require(cfg, "strategy.middle_of_range_pct")
     if not 0 <= pct < 100:
         raise ConfigError("strategy.middle_of_range_pct must be between 0 and 100")
+    if not _require(cfg, "stops.allow_move_sl_to_breakeven") and \
+            cfg["stops"].get("manage_at_r", 0) > 0 and cfg["stops"].get("breakeven_after_manage"):
+        raise ConfigError("stops.breakeven_after_manage moves the stop to breakeven, but "
+                          "stops.allow_move_sl_to_breakeven is false")
+    modes = set(_require(cfg, "strategy.entry_modes"))
+    if not modes <= {"confirmation_close", "retest"}:
+        raise ConfigError("strategy.entry_modes can only contain confirmation_close and retest")
+
+    # --- settings the code implements in one way only ---
+    # They are in config.yaml to document the rule. Changing one would do
+    # nothing, which is worse than an error, so we refuse other values.
+    for dotted, value in FIXED_RULES.items():
+        if _require(cfg, dotted) != value:
+            raise ConfigError(f"{dotted} must stay {value!r}: the code only implements that "
+                              "rule. To change it, the detection code has to change too.")
 
 
 def output_dir(cfg: dict) -> Path:
