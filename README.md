@@ -4,7 +4,7 @@ Personal, **read-only** market analysis assistant for EURUSD and GOLD.
 It analyses. It never places orders. See `CLAUDE.md` for the full brief and rulebook.
 
 Status: data, swings + S/R levels, structure + patterns, trade plan, backtest with
-three strategies, and a research study. Not built yet: signal checker, journal.
+three strategies, and a research study. Not built yet: signal checker.
 
 **Read `RESEARCH.md` first.** The backtest found no strategy with a real edge on
 unseen data. The shipped settings are the ones that brought the baseline to break-even.
@@ -31,7 +31,7 @@ pip install -e .
 pytest
 ```
 
-`pytest` should print `149 passed`. The tests use fake data, so they need neither MT5 nor internet.
+`pytest` should print `169 passed`. The tests use fake data, so they need neither MT5 nor internet.
 
 ## Use
 
@@ -45,6 +45,9 @@ market-analyst news               # high-impact events this week
 market-analyst dashboard --fetch  # EVERYTHING on one web page, opened in your browser
 market-analyst deals              # orders the strategies want now: entry / SL / TP + past record
 market-analyst review             # what happened to logged deals: taken vs skipped
+market-analyst journal --import   # read your closed trades from MT5, check each against the rulebook
+market-analyst journal            # same check again, on data\journal_trades.csv (-v = every check)
+market-analyst journal --file tests\fixtures\journal_trades.csv   # try it on the sample trades
 market-analyst import-csv GOLD H1 C:\\path\\GOLD_H1.csv   # candles exported from MT5
 market-analyst backtest           # replay history: level vs retest vs h2l2, with spread
 market-analyst backtest GOLD -s level --save   # one symbol/strategy, trades saved to reports\
@@ -79,6 +82,7 @@ The verdict is one of:
 | `src/market_analyst/filters.py` | extra entry conditions from `config.yaml` |
 | `src/market_analyst/research.py` | in-sample search, out-of-sample verdict |
 | `src/market_analyst/journal.py` | MT5 file import, review of logged deals |
+| `src/market_analyst/trade_journal.py` | your real trades: MT5 history import, rule checks, stats |
 | `src/market_analyst/dashboard.py` | the web page (one self-contained HTML file, nothing online) |
 | `src/market_analyst/deals.py` | finds current deals and their past record (shared by `deals` and `dashboard`) |
 | `src/market_analyst/news.py` | weekly economic calendar (information only) |
@@ -87,3 +91,22 @@ The verdict is one of:
 | `tests/` | pytest suite on hand-built candles and fake feeds |
 | `knowledge/` | your notes and book summaries (see `knowledge/README.md`) |
 | `.claude/skills/market-brief/` | tells Claude how to run a full brief (tool + notes + web news) |
+
+## Trade journal
+
+`market-analyst journal --import` reads your closed trades from the MT5 terminal
+(read-only: `history_deals_get` / `history_orders_get`) into `data\journal_trades.csv`,
+one row per position. Open that file in Excel and fill in the `source` column
+(`own` or `signal`) and `note`; a later `--import` keeps what you wrote. You can also
+type older trades into it by hand (leave `position` empty).
+
+Each trade is checked against the rulebook, with the numbers from `config.yaml`:
+stop loss set, risk:reward >= 1:2, risk <= 1% (and the learning lot), one trade at a
+time, daily stop (2 losses or -3%), no bigger size after a loss, own analysis,
+entry at a validated level, not in the middle of the range, stop beyond the level,
+and the H4 trend (counter-trend is a *note*, not a break). The chart checks use only
+candles that had closed before the entry, so they see what you could see.
+`n/a` means the data cannot tell (no candles that far back, `source` left empty).
+
+The summary compares trades that broke no rule with trades that broke one.
+`reports\journal_review.csv` has one row per trade and one column per rule.

@@ -246,3 +246,14 @@ filters:
 deals:
   warmup_bars: 400          # candles replayed so each strategy knows its current setup
   log_file: deals_log.csv   # every deal shown is appended here (in reports/), to review later
+
+# --- Trade journal: your real trades checked against the rulebook ------ [M6] ---
+# `market-analyst journal --import` reads your closed trades from MT5 (read-only)
+# into data/journal_trades.csv. Every rule it checks uses the numbers above
+# (stops, risk, strategy, patterns). Only these journal settings are new:
+journal:
+  trades_file: journal_trades.csv   # in the data folder; fill in 'source' (own / signal) yourself
+  history_days: 365                 # how far back `journal --import` reads the MT5 history
+  starting_balance: 10000           # used only when the history does not include your deposit
+  trend_timeframe: H4               # "prefer trading with the H4 trend"
+  report_file: journal_review.csv   # one row per trade, one column per rule (in reports/)
