@@ -15,6 +15,7 @@ Analysis commands (they read the cache, so run `fetch` first):
     news        high-impact economic events this week
     deals       the orders each strategy wants right now (entry / SL / TP + past record)
     dashboard   all of the above on one web page, opened in your browser
+    desk        the dark analysis desk: live page with chart, rule checks, deals, events
     review      what happened to the logged deals, taken vs skipped
     import-csv  load candles exported from MT5 (exact XM prices, no account access)
     backtest    replay history: how did each strategy do, with spread?
@@ -28,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 
 import pandas as pd
 
@@ -42,6 +44,7 @@ from .data import (
     account_warnings,
     detect_server_offset,
     expected_server_offset_hours,
+    fetch_rates,
     get_symbol_spec,
     load_cache,
     merge_into_cache,
@@ -463,6 +466,91 @@ def cmd_dashboard(args, cfg, mt5_module=None) -> int:
     return 0
 
 
+def cmd_desk(args, cfg, mt5_module=None, sleep=time.sleep) -> int:
+    """Build reports/desk.html. With --watch, keep it live:
+      every refresh  : re-read the newest candles and (MT5) the live bid/ask
+      new H1 candle  : redo the analysis, deals, backtest record and event feed
+    Nothing here can place an order: MT5 is only read."""
+    import webbrowser
+    from . import desk
+    if "desk" not in cfg:
+        raise ConfigError("config.yaml has no 'desk:' section. Copy it from the project's "
+                          "config.yaml.")
+    dcfg, source = cfg["desk"], cfg["_source"]
+    scfg = cfg["strategy"]
+    core = list(dict.fromkeys(scfg["level_timeframes"] + [scfg["confirmation_timeframe"]]))
+    wanted = list(dict.fromkeys(core + dcfg["chart_timeframes"]))
+    symbols = _symbols(cfg, args.symbols)
+    out = output_dir(cfg)
+    path = out / "desk.html"
+    refresh = dcfg["refresh_seconds"] if args.watch else 0
+    built: dict[str, dict] = {}         # per symbol: the analysis of its last H1 candle
+    last_public = None
+    cycle = 0
+    try:
+        while True:
+            now = utc_now()
+            live: dict = {}
+            # --- 1. newest candles (and live quotes on MT5) ---
+            if args.fetch or args.watch:
+                if source == "mt5":
+                    with MT5Connection(cfg, mt5_module) as mt5:
+                        for sym in symbols:
+                            for tf in wanted:
+                                count = (dcfg["update_bars"] if cycle else
+                                         cfg["data"]["bars"].get(tf, dcfg["update_bars"]))
+                                merge_into_cache(cfg, sym, tf, fetch_rates(mt5, sym, tf, count, cfg))
+                            live[sym] = desk.read_quote(mt5, sym)
+                elif last_public is None or (now - last_public).total_seconds() >= \
+                        dcfg["public_feed_minutes"] * 60:
+                    for sym in symbols:
+                        frames = fetch_yahoo(sym, cfg)
+                        for tf in wanted:
+                            if tf in frames:
+                                merge_into_cache(cfg, sym, tf, frames[tf], source)
+                    last_public = now
+            # --- 2. analysis, redone only when a new H1 candle closed ---
+            for sym in symbols:
+                frames = {tf: _load(cfg, sym, tf) for tf in core}
+                frames.update({tf: df for tf in wanted if tf not in frames
+                               and (df := load_cache(cfg, sym, tf, source)) is not None})
+                key = frames[scfg["confirmation_timeframe"]].index[-1]
+                if sym in built and built[sym]["key"] == key:
+                    continue
+                h = _histories(cfg, [sym])[sym]
+                found = deals_mod.find_deals(h, cfg)
+                deals_mod.log_deals([d for d in found.values() if d is not None],
+                                    out / cfg["deals"]["log_file"],
+                                    lambda v, s: report.fmt_price(v, cfg, s), now)
+                a = analyze(sym, cfg, {tf: frames[tf] for tf in core})
+                news_lines = None if args.no_news else _news_lines(cfg, sym, 7 * 24)
+                built[sym] = {
+                    "key": key,
+                    "snap": desk.snapshot(cfg, sym, frames, a, found, h, news_lines, None),
+                    "records": None if args.no_backtest else desk.backtest_records(h, cfg),
+                }
+                print(f"{now:%H:%M:%S} {sym}: analysed the H1 candle of {key:%a %H:%M} UTC "
+                      f"-> {a.verdict}")
+            # --- 3. the page ---
+            snaps = [desk.with_live(built[s]["snap"], live.get(s)) for s in symbols]
+            records = {s: built[s]["records"] for s in symbols if built[s]["records"]}
+            path.write_text(desk.build_page(cfg, source, snaps, now, SOURCE_NOTES.get(source),
+                                            refresh, records), encoding="utf-8")
+            if cycle == 0:
+                print(f"Desk saved: {path}")
+                if not args.no_open:
+                    webbrowser.open(path.resolve().as_uri())
+                if args.watch:
+                    print(f"Live: refreshing every {refresh} s. Press Ctrl+C to stop.")
+            cycle += 1
+            if not args.watch or (args.cycles and cycle >= args.cycles):
+                return 0
+            sleep(refresh)
+    except KeyboardInterrupt:
+        print("\nStopped. The last page stays in", path)
+        return 0
+
+
 # --- argument parsing ------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
@@ -520,6 +608,16 @@ def build_parser() -> argparse.ArgumentParser:
     wp.add_argument("--no-backtest", action="store_true", help="skip the backtest record (faster)")
     wp.add_argument("--no-news", action="store_true", help="skip the economic calendar")
 
+    kp = sub.add_parser("desk", help="dark analysis desk: live page, chart, rule checks, events")
+    kp.add_argument("symbols", nargs="*", help="default: EURUSD and GOLD")
+    kp.add_argument("--watch", action="store_true",
+                    help="keep running and refresh the page (desk.refresh_seconds)")
+    kp.add_argument("--fetch", action="store_true", help="download fresh candles first")
+    kp.add_argument("--cycles", type=int, default=0, help="with --watch: stop after N refreshes")
+    kp.add_argument("--no-open", action="store_true", help="do not open the browser")
+    kp.add_argument("--no-backtest", action="store_true", help="skip the backtest record (faster)")
+    kp.add_argument("--no-news", action="store_true", help="skip the economic calendar")
+
     ip = sub.add_parser("import-csv", help="load candles exported from MT5 (exact XM prices)")
     ip.add_argument("symbol")
     ip.add_argument("timeframe", choices=["H1", "H4", "D1"])
@@ -549,6 +647,7 @@ COMMANDS = {
     "import-csv": cmd_import_csv,
     "review": cmd_review,
     "dashboard": cmd_dashboard,
+    "desk": cmd_desk,
 }
 
 

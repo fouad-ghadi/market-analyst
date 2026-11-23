@@ -246,3 +246,15 @@ filters:
 deals:
   warmup_bars: 400          # candles replayed so each strategy knows its current setup
   log_file: deals_log.csv   # every deal shown is appended here (in reports/), to review later
+
+# --- Analysis desk (`market-analyst desk`) ------------------------------------
+# A dark, live web page. Display settings only: no rule lives here.
+desk:
+  refresh_seconds: 30       # with --watch: rebuild the page every 30 s (live price, clocks)
+  update_bars: 300          # MT5: candles re-read per timeframe at each refresh (small = fast)
+  public_feed_minutes: 15   # public feed: download again at most every 15 minutes
+  chart_timeframes: [H1, H4, D1]
+  default_timeframe: H4     # the chart opens on H4 (direction and main levels)
+  chart_bars: 160           # candles drawn on the chart
+  feed_hours: 48            # the event feed covers the last 48 H1 candles
+  feed_max_items: 25
