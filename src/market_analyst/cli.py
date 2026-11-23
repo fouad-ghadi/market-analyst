@@ -16,6 +16,7 @@ Analysis commands (they read the cache, so run `fetch` first):
     deals       the orders each strategy wants right now (entry / SL / TP + past record)
     dashboard   all of the above on one web page, opened in your browser
     review      what happened to the logged deals, taken vs skipped
+    journal     your real closed trades checked against your rulebook, with stats
     import-csv  load candles exported from MT5 (exact XM prices, no account access)
     backtest    replay history: how did each strategy do, with spread?
     research    search for better settings in-sample, judge them out-of-sample
@@ -32,6 +33,7 @@ import sys
 import pandas as pd
 
 from . import __version__, backtest, journal, news, report, research
+from . import trade_journal as tj
 from . import deals as deals_mod
 from .analysis import analyze
 from .config import ConfigError, load_config, output_dir
@@ -428,6 +430,74 @@ def cmd_review(args, cfg, mt5_module=None) -> int:
     return 0
 
 
+def _fmt_stats(label: str, s: dict) -> str:
+    if not s["trades"]:
+        return f"  {label}: no trades"
+    avg = f"{s['avg_r']:+.2f}R" if s["avg_r"] is not None else "n/a"
+    pf = f"{s['profit_factor']:.2f}" if s["profit_factor"] is not None else "n/a"
+    return (f"  {label}: {s['trades']} trades, {s['wins']} won / {s['losses']} lost "
+            f"({s['win_rate']:.0f}%), net {s['net']:+.2f}, average {avg}, "
+            f"profit factor {pf}, max drawdown {s['max_drawdown']:.2f}")
+
+
+def cmd_journal(args, cfg, mt5_module=None) -> int:
+    path = tj.trades_path(cfg)
+    if args.do_import:
+        _need_mt5(cfg, "journal --import")
+        with MT5Connection(cfg, mt5_module) as mt5:
+            new = tj.import_from_mt5(mt5, cfg)
+        old = tj.load_trades(path) if path.exists() else None
+        merged = tj.merge_trades(old, new)
+        tj.save_trades(merged, path)
+        print(f"Imported {len(new)} closed trade(s) from MT5 into {path}.")
+    source = args.file or path
+    try:
+        trades = tj.load_trades(source)
+    except tj.JournalError as exc:
+        hint = "" if args.file else " Run `market-analyst journal --import` on your PC first."
+        raise ConfigError(f"{exc}.{hint}") from exc
+    if trades.empty:
+        print("No closed trades in the journal yet.")
+        return 0
+    histories = tj.load_histories(cfg, trades["symbol"].unique(),
+                                  lambda s, tf: load_cache(cfg, s, tf, cfg["_source"]))
+    reviews = tj.review_all(trades, histories, cfg)
+    for rv in reviews:
+        t = rv.trade
+        f = lambda v: report.fmt_price(v, cfg, t["symbol"]) if t["symbol"] in cfg["symbols"] \
+            else f"{v:g}"  # noqa: E731
+        r = f"{rv.r:+.2f}R" if rv.r is not None else "  ?R"
+        net = t["profit"] + t["commission"] + t["swap"]
+        print(f"\n{t['open_time_utc']:%Y-%m-%d %H:%M}  {t['symbol']:7s} {t['direction']:4s} "
+              f"{t['volume']:g} lot  entry {f(t['open_price'])}  SL {f(t['sl'])}  "
+              f"TP {f(t['tp'])}  -> {net:+.2f} ({r})"
+              + (f"  [{t['exit_reason']}]" if t["exit_reason"] else ""))
+        if rv.followed_rules:
+            print("  every checkable rule followed")
+        for c in rv.checks:
+            if c.status in (tj.BROKEN, tj.NOTE) or args.verbose:
+                print(f"  {c.status:6s} {c.rule}: {c.detail}")
+    summary = tj.summarize(reviews)
+    print("\n=== Summary")
+    print(_fmt_stats("all trades          ", summary["all"]))
+    print(_fmt_stats("no rule broken      ", summary["followed"]))
+    print(_fmt_stats("broke at least one  ", summary["broke"]))
+    print("\n=== Rules (broken / checked)")
+    for rule, n in summary["rules"].items():
+        checked = n[tj.OK] + n[tj.BROKEN] + n[tj.NOTE]
+        extra = f", {n[tj.NOTE]} note(s)" if n[tj.NOTE] else ""
+        extra += f", {n[tj.NA]} not checkable" if n[tj.NA] else ""
+        print(f"  {rule:32s} {n[tj.BROKEN]} / {checked}{extra}")
+    out = output_dir(cfg) / cfg["journal"]["report_file"]
+    tj.reviews_frame(reviews).to_csv(out, index=False)
+    print(f"\nOne row per trade, one column per rule: {out}")
+    print("With fewer than about 30 trades these numbers mean little. "
+          "'n/a' = the data cannot tell (e.g. fill in the 'source' column).")
+    if cfg["_source"] in SOURCE_NOTES and histories:
+        print(SOURCE_NOTES[cfg["_source"]])
+    return 0
+
+
 def cmd_dashboard(args, cfg, mt5_module=None) -> int:
     import argparse
     import webbrowser
@@ -527,6 +597,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("review", help="what happened to the logged deals: taken vs skipped")
 
+    jp = sub.add_parser("journal", help="your closed trades checked against your rulebook")
+    jp.add_argument("--import", dest="do_import", action="store_true",
+                    help="first read your closed trades from MT5 (read-only)")
+    jp.add_argument("--file", help="read trades from this CSV instead of the journal file")
+    jp.add_argument("-v", "--verbose", action="store_true",
+                    help="show every check, not only the broken ones")
+
     rp = sub.add_parser("research", help="search settings in-sample, judge out-of-sample")
     rp.add_argument("symbols", nargs="*", help="default: all symbols in config")
     rp.add_argument("-s", "--strategies", nargs="+", choices=list(STRATEGIES),
@@ -548,6 +625,7 @@ COMMANDS = {
     "deals": cmd_deals,
     "import-csv": cmd_import_csv,
     "review": cmd_review,
+    "journal": cmd_journal,
     "dashboard": cmd_dashboard,
 }
 
@@ -561,7 +639,7 @@ def main(argv: list[str] | None = None, mt5_module=None) -> int:
         # A test (or caller) that hands us an MT5 module wants MT5.
         cfg["_source"] = "mt5" if mt5_module is not None else resolve_source(cfg)
         return COMMANDS[args.command](args, cfg, mt5_module)
-    except (ConfigError, MT5Error, FeedError) as exc:
+    except (ConfigError, MT5Error, FeedError, tj.JournalError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 

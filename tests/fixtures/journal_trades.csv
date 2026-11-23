@@ -1,0 +1,7 @@
+position,symbol,direction,order_type,volume,open_time_utc,open_price,sl,tp,close_time_utc,close_price,exit_reason,profit,commission,swap,source,note
+1001,EURUSD,buy,limit,0.01,2026-07-20 09:15:00,1.14320,1.14180,1.14700,2026-07-20 11:40:00,1.14178,sl,-1.42,0,0,own,good process: support failed
+1002,GOLD,buy,market,0.01,2026-07-20 14:05:00,4031.65,4028.00,4051.00,2026-07-20 14:30:00,4027.84,sl,-3.81,0,0,signal,telegram
+1003,GOLD,buy,market,0.01,2026-07-27 13:10:00,4090.72,4078.00,4109.00,2026-07-27 16:20:00,4109.12,tp,18.40,0,0,signal,telegram
+1004,GOLD,buy,market,0.01,2026-07-27 13:12:00,4091.80,4078.00,4109.00,2026-07-27 16:20:00,4109.12,tp,17.32,0,0,signal,telegram
+1005,GOLD,buy,market,0.01,2026-08-04 15:00:00,4070.26,4049.00,4079.00,2026-08-04 18:30:00,4049.00,sl,-21.26,0,0,,
+1006,GOLD,buy,market,0.01,2026-08-27 14:20:00,4621.98,4609.14,4669.96,2026-08-27 16:05:00,4618.11,manual,-3.87,0,0,,

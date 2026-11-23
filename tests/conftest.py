@@ -44,7 +44,8 @@ class FakeMT5:
     _TF_NAMES = {5: "M5", 15: "M15", 16385: "H1", 16388: "H4", 16408: "D1"}
 
     def __init__(self, n_bars: int = 300, trade_mode: int = 0, init_ok: bool = True,
-                 tick_time: int | None = None):
+                 tick_time: int | None = None, deals=(), orders=()):
+        self.deals, self.orders = list(deals), list(orders)   # account history
         self.n_bars = n_bars              # total candles that "exist" on the server
         self.trade_mode = trade_mode      # 0 demo, 2 real
         self.init_ok = init_ok
@@ -86,6 +87,13 @@ class FakeMT5:
         if symbol not in SYMBOLS:
             return None
         return SimpleNamespace(time=self.tick_time or 0, bid=1.0, ask=1.0)
+
+    # --- account history (read-only) ---
+    def history_deals_get(self, date_from, date_to, **kwargs):
+        return tuple(self.deals)
+
+    def history_orders_get(self, date_from, date_to, **kwargs):
+        return tuple(self.orders)
 
     # --- candles ---
     def all_bars(self, symbol, timeframe):
