@@ -43,6 +43,8 @@ market-analyst levels GOLD -t H4  # list zones with touch counts (--all for ever
 market-analyst chart GOLD -t H4 D1   # save reports\GOLD_H4_levels.png
 market-analyst news               # high-impact events this week
 market-analyst dashboard --fetch  # EVERYTHING on one web page, opened in your browser
+market-analyst desk --watch       # dark LIVE analysis desk: chart, rule checks, deals, event feed
+market-analyst desk GOLD --fetch  # one snapshot of the desk (no live refresh)
 market-analyst deals              # orders the strategies want now: entry / SL / TP + past record
 market-analyst review             # what happened to logged deals: taken vs skipped
 market-analyst import-csv GOLD H1 C:\\path\\GOLD_H1.csv   # candles exported from MT5
@@ -52,6 +54,13 @@ market-analyst research           # search settings on older data, judge on unse
 ```
 
 MT5 only: `market-analyst status`, `specs`, `check-time`.
+
+**The desk** (`market-analyst desk --watch`) keeps running and rewrites `reports\desk.html`
+every 30 seconds (`desk.refresh_seconds` in `config.yaml`); the open page reloads itself.
+With MT5 it also shows the live bid. The analysis itself only changes when an H1 candle
+closes. Click a symbol at the top to switch, H1/H4/D1 to change the chart, and hover a deal
+to draw its stop and target. Press Ctrl+C to stop. There are no order buttons: the desk only
+reads.
 
 The verdict is one of:
 
@@ -80,6 +89,7 @@ The verdict is one of:
 | `src/market_analyst/research.py` | in-sample search, out-of-sample verdict |
 | `src/market_analyst/journal.py` | MT5 file import, review of logged deals |
 | `src/market_analyst/dashboard.py` | the web page (one self-contained HTML file, nothing online) |
+| `src/market_analyst/desk.py` | the live analysis desk page (chart, rulebook checklist, point-in-time event feed) |
 | `src/market_analyst/deals.py` | finds current deals and their past record (shared by `deals` and `dashboard`) |
 | `src/market_analyst/news.py` | weekly economic calendar (information only) |
 | `src/market_analyst/report.py` | text report and chart image |
